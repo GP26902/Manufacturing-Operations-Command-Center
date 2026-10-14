@@ -44,12 +44,12 @@ def render() -> None:
         st.warning("⚠️ Add at least one category with a positive count.")
         return
 
-    fig = go.Figure()
+        fig = go.Figure()
     fig.add_trace(go.Bar(x=d["Defect Category"], y=d["Frequency (Count)"], name="Count",
                          marker_color=[RED if v else BLUE for v in d["Vital Few"]]))
     fig.add_trace(go.Scatter(x=d["Defect Category"], y=d["Cumulative %"], name="Cumulative %",
                              mode="lines+markers", line=dict(color="#f5c518", width=3), marker=dict(size=8), yaxis="y2"))
-fig.add_hline(y=80, line_dash="dash", line_color="#9e9e9e", yref="y2", annotation_text="80%")
+    fig.add_hline(y=80, line_dash="dash", line_color="#9e9e9e", yref="y2", annotation_text="80%")
     fig.update_layout(
         title="Pareto Chart (red = vital few)",
         yaxis=dict(title="Count"),
