@@ -46,7 +46,7 @@ def render() -> None:
     fig.update_layout(title="Time Allocation", yaxis_title="Hours", height=340)
     plot(fig)
 
-        if r["mtbf"]:
+    if r["mtbf"]:
         t = np.linspace(0, r["mtbf"] * 3, 200)
         fig2 = go.Figure(go.Scatter(x=t, y=np.exp(-t / r["mtbf"]) * 100, mode="lines", line=dict(color=GREEN, width=3)))
         fig2.add_vline(x=r["mtbf"], line_dash="dash", line_color="#f5c518", annotation_text="MTBF (36.8% survive)")

@@ -44,7 +44,7 @@ def render() -> None:
         st.warning("⚠️ Add at least one category with a positive count.")
         return
 
-        fig = go.Figure()
+    fig = go.Figure()
     fig.add_trace(go.Bar(x=d["Defect Category"], y=d["Frequency (Count)"], name="Count",
                          marker_color=[RED if v else BLUE for v in d["Vital Few"]]))
     fig.add_trace(go.Scatter(x=d["Defect Category"], y=d["Cumulative %"], name="Cumulative %",

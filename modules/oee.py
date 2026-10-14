@@ -43,7 +43,7 @@ def render() -> None:
 
     st.markdown("##### ⚡ Performance and ⚙️ quality losses")
     p1, p2, p3 = st.columns(3)
-    ideal_ct = p1.number_input("Ideal cycle time (s/unit)", 0.1, 60.0, 1.5, 0.1)
+    ideal_ct = p1.number_input("Ideal cycle time (s/unit)", 0.1, 60.0, 6.0, 0.1)
     produced = p2.number_input("Total pieces produced", 1, 20000, 3500, 100)
     defects = p3.number_input("Defective / scrapped pieces", 0, int(produced), 105, 5)
 
