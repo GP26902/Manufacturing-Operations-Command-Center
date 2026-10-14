@@ -17,6 +17,8 @@ An interactive, multi-module Streamlit app for the analyses plant and quality en
 | **Line Balancing & Takt** | Can this line meet customer demand? | Takt time, bottleneck, max output vs demand, balance efficiency and delay, stations exceeding takt, theoretical minimum stations |
 | **Six Sigma DMAIC Board** | Where is each improvement project in the DMAIC cycle? | Table-driven Kanban board with project metrics |
 
+![OEE dashboard](docs/screenshots/oee-dashboard.png)
+
 ![Line balancing](docs/screenshots/line-balancing.png)
 
 ## Engineering notes
