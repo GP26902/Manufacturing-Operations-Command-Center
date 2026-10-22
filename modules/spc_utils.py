@@ -88,3 +88,96 @@ def attribute_limits(kind: str, counts: np.ndarray, n: float | np.ndarray = 1.0)
         cl = nbar * pbar
         return {"series": counts, "cl": cl, "ucl": cl + 3 * sd, "lcl": max(0.0, cl - 3 * sd)}
     raise ValueError(f"Unknown attribute chart type: {kind}")
+
+
+# ---------------------------------------------------------------------------
+# Run and trend rules (beyond Rule 1, "point outside the control limits")
+# ---------------------------------------------------------------------------
+DEFAULT_RUN_LENGTH = 7    # points in a row on the same side of the centerline
+DEFAULT_TREND_LENGTH = 6  # points in a row steadily rising or steadily falling
+
+
+def _runs_of_equal(codes: np.ndarray) -> list[tuple[int, int, int]]:
+    """Maximal runs of identical non-zero codes as (start, end_inclusive, code)."""
+    runs, i, n = [], 0, len(codes)
+    while i < n:
+        if codes[i] == 0 or np.isnan(codes[i]):
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and codes[j + 1] == codes[i]:
+            j += 1
+        runs.append((i, j, int(codes[i])))
+        i = j + 1
+    return runs
+
+
+def _signs(diff: np.ndarray, ref: float, values: np.ndarray) -> np.ndarray:
+    """Sign of each difference, treating floating-point noise as zero.
+
+    Without this, identical values (for example a constant column) can sit a hair
+    above or below their own mean and look like a run.
+    """
+    finite = values[np.isfinite(values)]
+    scale = max(1.0, abs(ref), float(np.max(np.abs(finite))) if finite.size else 0.0)
+    out = np.sign(diff)
+    out[np.abs(diff) <= 1e-9 * scale] = 0.0
+    return out
+
+
+def run_segments(values, center: float, length: int = DEFAULT_RUN_LENGTH) -> list[tuple[int, int]]:
+    """Each run of ``length`` or more points on one side of the centerline, as (first, last) positions.
+
+    A point exactly on the centerline ends a run. Missing values end a run.
+    A run above the line followed directly by a run below it is reported as two runs.
+    """
+    v = np.asarray(values, dtype=float)
+    return [(a, b) for a, b, _ in _runs_of_equal(_signs(v - center, center, v)) if b - a + 1 >= length]
+
+
+def trend_segments(values, length: int = DEFAULT_TREND_LENGTH) -> list[tuple[int, int]]:
+    """Each stretch of ``length`` or more points steadily rising or falling, as (first, last) positions.
+
+    Equal consecutive values end a trend. Missing values end a trend.
+    """
+    v = np.asarray(values, dtype=float)
+    if len(v) < 2:
+        return []
+    steps = _signs(np.diff(v), 0.0, v)  # one entry per step between neighbouring points
+    return [(a, b + 1) for a, b, _ in _runs_of_equal(steps) if (b - a + 1) + 1 >= length]
+
+
+def _mask(segments: list[tuple[int, int]], n: int) -> np.ndarray:
+    flags = np.zeros(n, dtype=bool)
+    for a, b in segments:
+        flags[a : b + 1] = True
+    return flags
+
+
+def run_flags(values, center: float, length: int = DEFAULT_RUN_LENGTH) -> np.ndarray:
+    """Mask of points that belong to a run on one side of the centerline."""
+    return _mask(run_segments(values, center, length), len(np.asarray(values)))
+
+
+def trend_flags(values, length: int = DEFAULT_TREND_LENGTH) -> np.ndarray:
+    """Mask of points that belong to a steady rising or falling trend."""
+    return _mask(trend_segments(values, length), len(np.asarray(values)))
+
+
+def run_rule_violations(
+    values, center: float, run_length: int = DEFAULT_RUN_LENGTH, trend_length: int = DEFAULT_TREND_LENGTH
+) -> dict:
+    """Flagged points and the individual runs/trends found.
+
+    ``run`` and ``trend`` are 0-based positions of flagged points (for markers);
+    ``run_segments`` and ``trend_segments`` are (first, last) positions of each run or trend.
+    """
+    run_seg = run_segments(values, center, run_length)
+    trend_seg = trend_segments(values, trend_length)
+    n = len(np.asarray(values))
+    return {
+        "run": np.flatnonzero(_mask(run_seg, n)).tolist(),
+        "trend": np.flatnonzero(_mask(trend_seg, n)).tolist(),
+        "run_segments": run_seg,
+        "trend_segments": trend_seg,
+    }

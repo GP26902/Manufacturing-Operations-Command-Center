@@ -28,6 +28,7 @@ def sample_data_note(text: str = "Sample data shown for illustration. Edit the t
     st.caption(f"ℹ️ {text}")
 
 
+
 def control_chart(
     x,
     y,
@@ -80,3 +81,47 @@ def report_ooc(chart_label: str, ooc_points: list, what: str = "Subgroup") -> No
         st.error(f"⚠️ **{chart_label}: out of control.** {what}(s) {ooc_points} fall outside the control limits. Investigate for special causes.")
     else:
         st.success(f"✅ **{chart_label}:** no points beyond the control limits.")
+
+
+def add_rule_markers(fig: go.Figure, x, y, violations: dict) -> None:
+    """Overlay markers on a control chart for points flagged by the run and trend rules.
+
+    ``violations`` is the output of ``spc_utils.run_rule_violations`` (0-based positions).
+    Rule 1 points (beyond the limits) are drawn by ``control_chart`` itself.
+    """
+    x = list(x)
+    y = list(y)
+    styles = {
+        "run": ("Run on one side of CL", ORANGE, "diamond-open"),
+        "trend": ("Trend", PURPLE, "triangle-up-open"),
+    }
+    for key, (name, color, symbol) in styles.items():
+        idx = violations.get(key, [])
+        if idx:
+            fig.add_trace(
+                go.Scatter(
+                    x=[x[i] for i in idx],
+                    y=[y[i] for i in idx],
+                    mode="markers",
+                    name=name,
+                    marker=dict(color=color, size=13, symbol=symbol, line=dict(width=2)),
+                )
+            )
+
+
+def report_rules(chart_label: str, violations: dict, x, run_length: int, trend_length: int, what: str = "Subgroup") -> None:
+    """Warning banners for run and trend rule violations, one range per run or trend."""
+    x = list(x)
+
+    def span(a: int, b: int) -> str:
+        return f"{x[a]}" if a == b else f"{x[a]}–{x[b]}"
+
+    messages = [
+        ("run_segments", f"{run_length}+ points in a row on one side of the centerline", "a sustained shift in the process level"),
+        ("trend_segments", f"{trend_length}+ points in a row steadily rising or falling", "a drift, such as tool wear or a warming machine"),
+    ]
+    for key, rule_text, meaning in messages:
+        segs = violations.get(key, [])
+        if segs:
+            where = ", ".join(span(a, b) for a, b in segs)
+            st.warning(f"⚠️ **{chart_label}: {rule_text}.** {what}(s) {where}. This can indicate {meaning}.")

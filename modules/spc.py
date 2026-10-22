@@ -8,7 +8,9 @@ import streamlit as st
 from scipy import stats
 
 from modules import spc_utils as su
-from modules.common import BLUE, GREEN, ORANGE, RED, control_chart, editor, plot, report_ooc, sample_data_note
+from modules.common import (
+    BLUE, GREEN, ORANGE, RED, add_rule_markers, control_chart, editor, plot, report_ooc, report_rules, sample_data_note,
+)
 
 
 def _default_subgroups(target: float, n: int = 5, k: int = 20) -> pd.DataFrame:
@@ -25,7 +27,17 @@ def _default_subgroups(target: float, n: int = 5, k: int = 20) -> pd.DataFrame:
     )
 
 
-def _variable_tab(df: pd.DataFrame, n: int, usl: float, lsl: float) -> None:
+def _show_chart(fig, ooc, x, y, center, label: str, rules: tuple[int, int], what: str = "Subgroup") -> None:
+    """Draw a control chart and report Rule 1 (limits), the run rule and the trend rule."""
+    run_len, trend_len = rules
+    viol = su.run_rule_violations(y, center, run_len, trend_len)
+    add_rule_markers(fig, x, y, viol)
+    plot(fig)
+    report_ooc(label, ooc, what=what)
+    report_rules(label, viol, x, run_len, trend_len, what=what)
+
+
+def _variable_tab(df: pd.DataFrame, n: int, usl: float, lsl: float, rules: tuple[int, int]) -> None:
     st.markdown("#### Variable Control Charts (X-bar, R, S)")
     charts = st.multiselect(
         "Charts to display:",
@@ -41,23 +53,20 @@ def _variable_tab(df: pd.DataFrame, n: int, usl: float, lsl: float) -> None:
             "X-bar Chart (Subgroup Means)", "Dimension (mm)", center_label="X̄̄", color=BLUE,
             spec_lines={"USL": usl, "LSL": lsl},
         )
-        plot(fig)
-        report_ooc("X-bar chart", ooc)
+        _show_chart(fig, ooc, x, df["Mean"], lim["xbarbar"], "X-bar chart", rules)
         st.caption(f"UCL = {lim['x_ucl']:.4f}, CL = {lim['xbarbar']:.4f}, LCL = {lim['x_lcl']:.4f}")
     if "R (Range)" in charts:
         fig, ooc = control_chart(
             x, df["Range"], lim["rbar"], lim["r_ucl"], lim["r_lcl"],
             "R Chart (Within-Subgroup Range)", "Range (mm)", center_label="R̄", color=ORANGE,
         )
-        plot(fig)
-        report_ooc("R chart", ooc)
+        _show_chart(fig, ooc, x, df["Range"], lim["rbar"], "R chart", rules)
     if "S (Standard Deviation)" in charts:
         fig, ooc = control_chart(
             x, df["StdDev"], lim["sbar"], lim["s_ucl"], lim["s_lcl"],
             "S Chart (Within-Subgroup Std Dev)", "Std Dev (mm)", center_label="S̄", color=GREEN,
         )
-        plot(fig)
-        report_ooc("S chart", ooc)
+        _show_chart(fig, ooc, x, df["StdDev"], lim["sbar"], "S chart", rules)
     if not charts:
         st.warning("Select at least one chart.")
 
@@ -101,7 +110,7 @@ def _capability_tab(df: pd.DataFrame, n: int, usl: float, lsl: float) -> None:
     st.caption("Cp/Cpk use short-term (within-subgroup) sigma. Pp/Ppk require the raw measurements, which are not in this summary table.")
 
 
-def _attribute_tab() -> None:
+def _attribute_tab(rules: tuple[int, int]) -> None:
     st.markdown("#### Attribute Control Charts (c, u, p, np)")
     if "spc_attr_df" not in st.session_state:
         rng = np.random.default_rng(7)
@@ -139,8 +148,7 @@ def _attribute_tab() -> None:
             st.warning(f"{title} assumes a constant sample size. Use the {'u' if kind == 'c' else 'p'}-chart for varying n.")
         res = su.attribute_limits(kind, df[col].to_numpy(), n)
         fig, ooc = control_chart(lots, res["series"], res["cl"], res["ucl"], res["lcl"], title, ytitle, x_title="Lot")
-        plot(fig)
-        report_ooc(title, ooc, what="Lot")
+        _show_chart(fig, ooc, lots, res["series"], res["cl"], title, rules, what="Lot")
 
 
 def _hypothesis_tab() -> None:
@@ -183,6 +191,17 @@ def render() -> None:
     tol = c3.number_input("Tolerance (± mm)", value=0.035, format="%.3f", min_value=0.001, key="spc_tol")
     usl, lsl = target + tol, target - tol
 
+    with st.expander("Run-rule settings (control charts)"):
+        st.caption(
+            "Besides points beyond the control limits, the charts flag a run of points on one side of the "
+            "centerline and a steady trend. Conventions differ (runs are commonly 7, 8 or 9 points; trends 6 or 7), "
+            "so the lengths are adjustable."
+        )
+        r1, r2 = st.columns(2)
+        run_len = r1.number_input("Run length (points on one side of CL)", 5, 10, su.DEFAULT_RUN_LENGTH, 1, key="spc_run_len")
+        trend_len = r2.number_input("Trend length (points rising or falling)", 5, 8, su.DEFAULT_TREND_LENGTH, 1, key="spc_trend_len")
+    rules = (int(run_len), int(trend_len))
+
     if "spc_input_df" not in st.session_state:
         st.session_state.spc_input_df = _default_subgroups(target)
     sample_data_note("Sample subgroup data shown (simulated). Edit the table, paste rows, or add subgroups.")
@@ -195,10 +214,10 @@ def render() -> None:
 
     tab1, tab2, tab3, tab4 = st.tabs(["Variable charts", "Process capability", "Attribute charts", "Hypothesis testing"])
     with tab1:
-        _variable_tab(df, n, usl, lsl)
+        _variable_tab(df, n, usl, lsl, rules)
     with tab2:
         _capability_tab(df, n, usl, lsl)
     with tab3:
-        _attribute_tab()
+        _attribute_tab(rules)
     with tab4:
         _hypothesis_tab()
