@@ -17,7 +17,11 @@ def pareto_table(df: pd.DataFrame, label_col: str, count_col: str) -> pd.DataFra
     d = df.dropna(subset=[label_col]).copy()
     d = d[d[label_col].astype(str).str.strip() != ""]
     d[count_col] = pd.to_numeric(d[count_col], errors="coerce").fillna(0)
-    d = d[d[count_col] > 0].sort_values(count_col, ascending=False).reset_index(drop=True)
+    d = d[d[count_col] > 0]
+    # Merge repeated categories (ignoring stray spaces) so each defect type is one bar.
+    d[label_col] = d[label_col].astype(str).str.strip()
+    d = d.groupby(label_col, as_index=False, sort=False)[count_col].sum()
+    d = d.sort_values(count_col, ascending=False).reset_index(drop=True)
     total = d[count_col].sum()
     d["Share %"] = d[count_col] / total * 100 if total > 0 else 0.0
     d["Cumulative %"] = d["Share %"].cumsum()

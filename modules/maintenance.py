@@ -34,7 +34,7 @@ def render() -> None:
     r = reliability_metrics(period, failures, repair)
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("MTBF", f"{r['mtbf']:.1f} h" if r["mtbf"] else "N/A", help="Uptime / failures. N/A when there are no failures.")
+    m1.metric("MTBF", f"{r['mtbf']:.1f} h" if r["mtbf"] is not None else "N/A", help="Uptime / failures. N/A when there are no failures.")
     m2.metric("MTTR", f"{r['mttr']:.1f} h")
     m3.metric("Availability", f"{r['availability']:.1f}%", delta=f"{r['availability'] - target:.1f} pts vs target")
     m4.metric("Failure rate", f"{r['rate_per_1000h']:.2f} /1000 h")
@@ -46,7 +46,7 @@ def render() -> None:
     fig.update_layout(title="Time Allocation", yaxis_title="Hours", height=340)
     plot(fig)
 
-    if r["mtbf"]:
+    if r["mtbf"] is not None and r["mtbf"] > 0:
         t = np.linspace(0, r["mtbf"] * 3, 200)
         fig2 = go.Figure(go.Scatter(x=t, y=np.exp(-t / r["mtbf"]) * 100, mode="lines", line=dict(color=GREEN, width=3)))
         fig2.add_vline(x=r["mtbf"], line_dash="dash", line_color="#f5c518", annotation_text="MTBF (36.8% survive)")

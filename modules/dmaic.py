@@ -11,6 +11,16 @@ PRIORITY_ICON = {"Critical": "🔴", "High": "🟠", "Medium": "🔵", "Low": "�
 STATUS_ICON = {"Completed": "✅", "In Progress": "⏳", "To Do": "📌"}
 
 
+def _text(value, default: str) -> str:
+    """Display text for a table cell: blank/NaN becomes the default, '$' is escaped.
+
+    Streamlit renders a pair of '$' signs as LaTeX, so literal dollars must be escaped.
+    """
+    if value is None or pd.isna(value) or not str(value).strip():
+        return default
+    return str(value).strip().replace("$", "\\$")
+
+
 def render() -> None:
     st.subheader("Six Sigma: DMAIC Project Board")
     st.markdown("Track improvement projects through the DMAIC phases. Edit the table; the board below updates from it.")
@@ -23,7 +33,7 @@ def render() -> None:
                 "Project Title": ["Reduce Line 3 Scrap Rate", "Gage R&R Measurement Systems Analysis",
                                   "Cycle Time Reduction: Packaging", "Poka-Yoke Error Proofing Assembly",
                                   "Supply Chain Lead Time Optimization", "Establish SPC Control Plans"],
-                "Phase": ["Define", "Measure", "Analyze", "Improve", "Improve", "Control"],
+                "Phase": ["Define", "Measure", "Control", "Improve", "Improve", "Control"],
                 "Owner": ["Owner A", "Owner B", "Owner C", "Owner A", "Owner D", "Owner E"],
                 "Priority": ["High", "High", "Medium", "Critical", "Medium", "High"],
                 "Status": ["In Progress", "In Progress", "Completed", "To Do", "In Progress", "To Do"],
@@ -73,5 +83,8 @@ def render() -> None:
                 st.caption("No projects")
             for _, row in items.iterrows():
                 with st.container(border=True):
-                    st.markdown(f"{STATUS_ICON.get(row['Status'], '📌')} {PRIORITY_ICON.get(row['Priority'], '⚪')} **{row['Project Title']}**")
-                    st.caption(f"{row.get('Owner') or 'Unassigned'} · ${row['Target Savings ($k)']:.0f}k · {row['Status']}")
+                    title = _text(row["Project Title"], "Untitled project")
+                    owner = _text(row.get("Owner"), "Unassigned")
+                    status = _text(row.get("Status"), "No status")
+                    st.markdown(f"{STATUS_ICON.get(row.get('Status'), '📌')} {PRIORITY_ICON.get(row.get('Priority'), '⚪')} **{title}**")
+                    st.caption(f"{owner} · \\${row['Target Savings ($k)']:.0f}k · {status}")

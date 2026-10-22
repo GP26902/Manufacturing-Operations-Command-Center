@@ -36,8 +36,8 @@ def render() -> None:
 
     st.markdown("##### ⏱️ Availability losses")
     d1, d2 = st.columns(2)
-    breakdowns = d1.number_input("Unplanned breakdowns (min)", 0, int(available), 45, 5)
-    setups = d2.number_input("Setup / changeover (min)", 0, int(available), 30, 5)
+    breakdowns = d1.number_input("Unplanned breakdowns (min)", 0, int(available), min(45, int(available)), 5)
+    setups = d2.number_input("Setup / changeover (min)", 0, int(available), min(30, int(available)), 5)
     if breakdowns + setups > available:
         st.warning("Breakdowns plus setup exceed available time; run time is clamped to zero.")
 
@@ -45,7 +45,7 @@ def render() -> None:
     p1, p2, p3 = st.columns(3)
     ideal_ct = p1.number_input("Ideal cycle time (s/unit)", 0.1, 60.0, 6.0, 0.1)
     produced = p2.number_input("Total pieces produced", 1, 20000, 3500, 100)
-    defects = p3.number_input("Defective / scrapped pieces", 0, int(produced), 105, 5)
+    defects = p3.number_input("Defective / scrapped pieces", 0, int(produced), min(105, int(produced)), 5)
 
     r = calc_oee(planned_time, planned_stops, breakdowns, setups, ideal_ct, produced, defects)
 

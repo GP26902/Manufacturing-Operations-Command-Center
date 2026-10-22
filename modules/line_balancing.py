@@ -24,7 +24,7 @@ def line_metrics(cycle_times: list[float], net_time_s: float, demand: float) -> 
         "efficiency": total / (k * bottleneck) * 100,
         "balance_delay": 100 - total / (k * bottleneck) * 100,
         "max_output": net_time_s / bottleneck,
-        "min_stations": math.ceil(total / takt) if takt not in (0, float("inf")) else None,
+        "min_stations": math.ceil(round(total / takt, 9)) if takt not in (0, float("inf")) else None,
     }
 
 
