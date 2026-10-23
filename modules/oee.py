@@ -25,6 +25,62 @@ def calc_oee(planned_time, planned_stops, breakdowns, setups, ideal_ct_s, total_
     }
 
 
+def loss_breakdown(planned_time, planned_stops, breakdowns, setups, ideal_ct_s, total_pieces, defects) -> dict:
+    """Time (minutes) lost at each stage, from planned time down to fully productive time.
+
+    Ties exactly to ``calc_oee``: fully productive time = available time x OEE.
+    Speed loss covers reduced speed and minor stops (they cannot be separated from
+    totals alone); quality loss covers scrap and startup rejects.
+    """
+    r = calc_oee(planned_time, planned_stops, breakdowns, setups, ideal_ct_s, total_pieces, defects)
+    available, run_time = r["available"], r["run_time"]
+    breakdown_loss = min(float(breakdowns), available)
+    setup_loss = (available - run_time) - breakdown_loss  # clamped if the two exceed available time
+    speed_loss = run_time * (1 - r["performance"] / 100)
+    net_run = run_time - speed_loss
+    quality_loss = net_run * (1 - r["quality"] / 100)
+    return {
+        "planned": float(planned_time),
+        "planned_stops": float(planned_time) - available,
+        "breakdowns": breakdown_loss,
+        "setups": setup_loss,
+        "speed": speed_loss,
+        "quality": quality_loss,
+        "productive": net_run - quality_loss,
+        "available": available,
+        "oee": r["oee"],
+    }
+
+
+def _fmt_min(v: float) -> str:
+    """Minutes with a decimal only when needed (339.5, 480)."""
+    return f"{v:.0f}" if abs(v - round(v)) < 0.05 else f"{v:.1f}"
+
+
+def loss_waterfall_figure(b: dict) -> go.Figure:
+    """Waterfall from planned production time to fully productive time (minutes)."""
+    labels = ["Planned time", "Planned stops", "Breakdowns", "Setup / changeover",
+              "Speed loss", "Quality loss", "Fully productive"]
+    values = [b["planned"], -b["planned_stops"], -b["breakdowns"], -b["setups"],
+              -b["speed"], -b["quality"], b["productive"]]
+    fig = go.Figure(
+        go.Waterfall(
+            x=labels,
+            y=values,
+            measure=["absolute", "relative", "relative", "relative", "relative", "relative", "total"],
+            text=[f"{_fmt_min(abs(v))} min" for v in values],
+            textposition="outside",
+            decreasing=dict(marker=dict(color=RED)),
+            totals=dict(marker=dict(color=GREEN)),
+            increasing=dict(marker=dict(color=BLUE)),
+            connector=dict(line=dict(color="#9e9e9e", width=1)),
+        )
+    )
+    fig.update_layout(title="Loss Waterfall: Planned Time to Fully Productive Time (minutes)",
+                      yaxis_title="Minutes", showlegend=False, height=420)
+    return fig
+
+
 def render() -> None:
     st.subheader("Overall Equipment Effectiveness (OEE) & Loss Analysis")
     st.caption("ℹ️ Default inputs are illustrative. Enter your own shift data.")
@@ -67,6 +123,15 @@ def render() -> None:
     fig.add_hline(y=WORLD_CLASS, line_dash="dash", line_color="grey", annotation_text="World class (85%)")
     fig.update_layout(title="OEE Components", yaxis_title="%", yaxis=dict(range=[0, 105]), height=380)
     plot(fig)
+
+    lb = loss_breakdown(planned_time, planned_stops, breakdowns, setups, ideal_ct, produced, defects)
+    plot(loss_waterfall_figure(lb))
+    st.caption(
+        f"Where the time goes. Fully productive time is {_fmt_min(lb['productive'])} min, which is {lb['oee']:.1f}% of the "
+        f"{_fmt_min(lb['available'])} min available (planned time minus planned stops, as in the OEE calculation above). "
+        "Breakdowns and setup are the availability losses; speed loss covers reduced speed and minor stops; "
+        "quality loss covers scrap and startup rejects."
+    )
 
     # Insight depends on the numbers: name the weakest factor.
     factors = {"Availability": r["availability"], "Performance": r["performance"], "Quality": r["quality"]}
