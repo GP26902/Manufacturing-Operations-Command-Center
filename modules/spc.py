@@ -1,6 +1,9 @@
 """SPC module: variable charts, process capability, attribute charts, hypothesis testing."""
 from __future__ import annotations
 
+import hashlib
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -27,6 +30,69 @@ def _default_subgroups(target: float, n: int = 5, k: int = 20) -> pd.DataFrame:
     )
 
 
+UPLOAD_WIDE = "One row per subgroup (columns are the measurements)"
+UPLOAD_LONG = "One row per measurement (with a subgroup column)"
+UPLOAD_SEQ = "Single column of readings in time order"
+_LAYOUTS = {"wide": UPLOAD_WIDE, "long": UPLOAD_LONG, "seq": UPLOAD_SEQ}
+
+
+@dataclass
+class Uploaded:
+    summary: pd.DataFrame   # Subgroup, Mean, Range, StdDev
+    raw: np.ndarray         # every reading, flattened (for Pp/Ppk)
+    n: int                  # subgroup size found in the file
+    key: str                # identifies the file, so widget defaults reset when it changes
+
+
+def _lab(base: str, unit: str) -> str:
+    return f"{base} ({unit})" if unit else base
+
+
+def _upload_section() -> Uploaded | None:
+    """Optional CSV of raw measurements. Returns None when no (valid) file is loaded."""
+    with st.expander("Upload your own measurements (CSV)"):
+        st.caption(
+            "Upload raw readings and the app computes the subgroup mean, range and standard deviation, "
+            "draws the charts, and adds Pp and Ppk. The app does not save your file."
+        )
+        st.download_button("Download an example CSV (simulated data)", su.example_csv(), file_name="spc_example_subgroups.csv",
+                           mime="text/csv", key="spc_example_dl")
+        st.caption("The example is simulated around a target of 10.000 with a ±0.035 tolerance, and includes a small shift after subgroup 12.")
+        file = st.file_uploader("CSV file", type=["csv", "txt"], key="spc_upload")
+        if file is None:
+            return None
+        data = file.getvalue()
+        fid = hashlib.md5(data).hexdigest()[:8]
+        try:
+            raw_df = su.read_csv_bytes(data)
+            cols = list(raw_df.columns)
+            guess = su.guess_layout(raw_df)
+            layout = st.radio("File layout", list(_LAYOUTS.values()), index=list(_LAYOUTS).index(guess), key=f"spc_layout_{fid}")
+            if layout == UPLOAD_WIDE:
+                id_guess = su.guess_id_column(raw_df)
+                opts = ["(none)"] + cols
+                id_col = st.selectbox("Subgroup ID column", opts, index=opts.index(id_guess) if id_guess in opts else 0, key=f"spc_id_{fid}")
+                labels, matrix, notes = su.matrix_from_wide(raw_df, None if id_col == "(none)" else id_col)
+            elif layout == UPLOAD_LONG:
+                g_guess, v_guess = su.guess_long_columns(raw_df)
+                g_col = st.selectbox("Subgroup column", cols, index=cols.index(g_guess), key=f"spc_group_{fid}")
+                v_col = st.selectbox("Measurement column", cols, index=cols.index(v_guess) if v_guess in cols else 0, key=f"spc_value_{fid}")
+                labels, matrix, notes = su.matrix_from_long(raw_df, g_col, v_col)
+            else:
+                nums = su.numeric_columns(raw_df) or cols
+                v_col = st.selectbox("Measurement column", nums, key=f"spc_seqcol_{fid}")
+                seq_n = st.number_input("Subgroup size (n)", su.MIN_N, su.MAX_N, 5, 1, key=f"spc_seqn_{fid}")
+                labels, matrix, notes = su.matrix_from_sequence(raw_df, v_col, int(seq_n))
+        except su.UploadError as exc:
+            st.error(f"{exc} Showing the sample data instead.")
+            return None
+        k, n = matrix.shape
+        st.success(f"Loaded {k} subgroups of {n} readings ({k * n:,} measurements).")
+        for note in notes:
+            st.caption(f"ℹ️ {note}")
+        return Uploaded(su.summarize_matrix(labels, matrix), matrix.ravel(), n, fid)
+
+
 def _show_chart(fig, ooc, x, y, center, label: str, rules: tuple[int, int], what: str = "Subgroup") -> None:
     """Draw a control chart and report Rule 1 (limits), the run rule and the trend rule."""
     run_len, trend_len = rules
@@ -37,7 +103,7 @@ def _show_chart(fig, ooc, x, y, center, label: str, rules: tuple[int, int], what
     report_rules(label, viol, x, run_len, trend_len, what=what)
 
 
-def _variable_tab(df: pd.DataFrame, n: int, usl: float, lsl: float, rules: tuple[int, int]) -> None:
+def _variable_tab(df: pd.DataFrame, n: int, usl: float, lsl: float, rules: tuple[int, int], unit: str = "mm") -> None:
     st.markdown("#### Variable Control Charts (X-bar, R, S)")
     charts = st.multiselect(
         "Charts to display:",
@@ -50,7 +116,7 @@ def _variable_tab(df: pd.DataFrame, n: int, usl: float, lsl: float, rules: tuple
     if "X-bar (Process Mean)" in charts:
         fig, ooc = control_chart(
             x, df["Mean"], lim["xbarbar"], lim["x_ucl"], lim["x_lcl"],
-            "X-bar Chart (Subgroup Means)", "Dimension (mm)", center_label="X̄̄", color=BLUE,
+            "X-bar Chart (Subgroup Means)", _lab("Dimension", unit), center_label="X̄̄", color=BLUE,
             spec_lines={"USL": usl, "LSL": lsl},
         )
         _show_chart(fig, ooc, x, df["Mean"], lim["xbarbar"], "X-bar chart", rules)
@@ -58,28 +124,29 @@ def _variable_tab(df: pd.DataFrame, n: int, usl: float, lsl: float, rules: tuple
     if "R (Range)" in charts:
         fig, ooc = control_chart(
             x, df["Range"], lim["rbar"], lim["r_ucl"], lim["r_lcl"],
-            "R Chart (Within-Subgroup Range)", "Range (mm)", center_label="R̄", color=ORANGE,
+            "R Chart (Within-Subgroup Range)", _lab("Range", unit), center_label="R̄", color=ORANGE,
         )
         _show_chart(fig, ooc, x, df["Range"], lim["rbar"], "R chart", rules)
     if "S (Standard Deviation)" in charts:
         fig, ooc = control_chart(
             x, df["StdDev"], lim["sbar"], lim["s_ucl"], lim["s_lcl"],
-            "S Chart (Within-Subgroup Std Dev)", "Std Dev (mm)", center_label="S̄", color=GREEN,
+            "S Chart (Within-Subgroup Std Dev)", _lab("Std Dev", unit), center_label="S̄", color=GREEN,
         )
         _show_chart(fig, ooc, x, df["StdDev"], lim["sbar"], "S chart", rules)
     if not charts:
         st.warning("Select at least one chart.")
 
 
-def _capability_tab(df: pd.DataFrame, n: int, usl: float, lsl: float) -> None:
+def _capability_tab(df: pd.DataFrame, n: int, usl: float, lsl: float, raw: np.ndarray | None = None, unit: str = "mm") -> None:
     st.markdown("#### Process Capability (from the subgroup data above)")
     lim = su.variable_limits(df, n)
     sigma = su.sigma_within(lim["rbar"], n)
     mean = lim["xbarbar"]
     cap = su.capability(usl, lsl, mean, sigma)
 
+    u = f" {unit}" if unit else ""
     st.caption(
-        f"Process mean = {mean:.4f} mm (grand mean). Within-subgroup σ = R̄/d2 = {sigma:.4f} mm. "
+        f"Process mean = {mean:.4f}{u} (grand mean). Within-subgroup σ = R̄/d2 = {sigma:.4f}{u}. "
         f"Specs: LSL {lsl:.3f}, USL {usl:.3f} (set at the top of this module)."
     )
     c1, c2, c3 = st.columns(3)
@@ -92,7 +159,7 @@ def _capability_tab(df: pd.DataFrame, n: int, usl: float, lsl: float) -> None:
     fig.add_trace(go.Scatter(x=xs, y=stats.norm.pdf(xs, mean, sigma), mode="lines", name="Process distribution", fill="tozeroy"))
     fig.add_vline(x=usl, line_dash="dash", line_color=RED, annotation_text="USL")
     fig.add_vline(x=lsl, line_dash="dash", line_color=RED, annotation_text="LSL")
-    fig.update_layout(title="Process Distribution vs Specification Limits", xaxis_title="Dimension (mm)", yaxis_title="Density", height=380)
+    fig.update_layout(title="Process Distribution vs Specification Limits", xaxis_title=_lab("Dimension", unit), yaxis_title="Density", height=380)
     plot(fig)
 
     ppm = (stats.norm.cdf(lsl, mean, sigma) + stats.norm.sf(usl, mean, sigma)) * 1e6
@@ -107,7 +174,21 @@ def _capability_tab(df: pd.DataFrame, n: int, usl: float, lsl: float) -> None:
         st.error("🚨 Cpk < 1.00: the process is not capable of meeting the specs.")
     if cap["cp"] - cap["cpk"] > 0.3:
         st.info("Cp is well above Cpk: the process spread fits the specs but the mean is off-center. Re-centering is the cheapest fix.")
-    st.caption("Cp/Cpk use short-term (within-subgroup) sigma. Pp/Ppk require the raw measurements, which are not in this summary table.")
+    if raw is None:
+        st.caption("Cp/Cpk use short-term (within-subgroup) sigma. Pp/Ppk require the raw measurements: upload a CSV of raw readings to get them.")
+        return
+    pp = su.overall_capability(raw, usl, lsl)
+    p1, p2, p3 = st.columns(3)
+    p1.metric("Pp (overall)", f"{pp['pp']:.2f}")
+    p2.metric("Ppk (overall)", f"{pp['ppk']:.2f}")
+    p3.metric("Overall σ", f"{pp['sigma']:.4f}{u}", help="Sample standard deviation of all readings together")
+    st.caption(
+        "Cp/Cpk use short-term (within-subgroup) sigma. Pp/Ppk use the overall sigma of all readings, so they also "
+        "include shifts and drift between subgroups. Both assume roughly normal data."
+    )
+    if not (np.isnan(cap["cpk"]) or np.isnan(pp["ppk"])) and cap["cpk"] - pp["ppk"] > 0.2:
+        st.info("Ppk is noticeably below Cpk: variation between subgroups (shifts or drift) is adding to the spread. "
+                "Check the control charts for runs and trends.")
 
 
 def _attribute_tab(rules: tuple[int, int]) -> None:
@@ -184,11 +265,27 @@ def _hypothesis_tab() -> None:
 def render() -> None:
     st.subheader("Statistical Process Control & Quality Engineering Suite")
 
+    up = _upload_section()
+    unit = "" if up else "mm"
+
     # Shared process inputs: every tab uses the same data and specs.
     c1, c2, c3 = st.columns(3)
-    n = c1.slider("Subgroup size (n) for chart constants", 2, 10, 5, key="spc_n")
-    target = c2.number_input("Target mean (mm)", value=10.00, format="%.3f", key="spc_target")
-    tol = c3.number_input("Tolerance (± mm)", value=0.035, format="%.3f", min_value=0.001, key="spc_tol")
+    if up:
+        n = up.n
+        mean_all, sd_all = float(up.raw.mean()), float(up.raw.std(ddof=1)) if len(up.raw) > 1 else 0.0
+        c1.metric("Subgroup size (n), from your file", n)
+        target = c2.number_input("Target mean", value=round(mean_all, 4), format="%.4f", key=f"spc_target_{up.key}")
+        tol = c3.number_input("Tolerance (±)", value=max(1e-4, round(4 * sd_all, 4)), format="%.4f", min_value=1e-4, key=f"spc_tol_{up.key}")
+        st.info(
+            "Target and tolerance start as placeholders computed from your data (mean ± 4 standard deviations). "
+            "Enter your real specification limits before reading Cp, Cpk, Pp and Ppk."
+        )
+    else:
+        n = c1.slider("Subgroup size (n) for chart constants", 2, 10, 5, key="spc_n")
+        target = c2.number_input("Target mean (mm)", value=10.00, format="%.3f", key="spc_target")
+        tol = c3.number_input("Tolerance (± mm)", value=0.035, format="%.3f", min_value=0.001, key="spc_tol")
+        if n != 5:
+            st.caption("The sample data below was generated with subgroups of 5. If you replace it, set n to match your own subgroup size.")
     usl, lsl = target + tol, target - tol
 
     with st.expander("Run-rule settings (control charts)"):
@@ -202,11 +299,17 @@ def render() -> None:
         trend_len = r2.number_input("Trend length (points rising or falling)", 5, 8, su.DEFAULT_TREND_LENGTH, 1, key="spc_trend_len")
     rules = (int(run_len), int(trend_len))
 
-    if "spc_input_df" not in st.session_state:
-        st.session_state.spc_input_df = _default_subgroups(target)
-    sample_data_note("Sample subgroup data shown (simulated). Edit the table, paste rows, or add subgroups.")
-    df = editor(st.session_state.spc_input_df, key="spc_editor")
-    df = df.dropna(subset=["Mean", "Range", "StdDev"]).reset_index(drop=True)
+    if up:
+        st.markdown("##### Subgroup summary from your file")
+        st.caption("Mean, range and sample standard deviation of each subgroup, computed from your raw readings.")
+        st.dataframe(up.summary, hide_index=True, height=250)
+        df = up.summary
+    else:
+        if "spc_input_df" not in st.session_state:
+            st.session_state.spc_input_df = _default_subgroups(target)
+        sample_data_note("Sample subgroup data shown (simulated). Edit the table, paste rows, or add subgroups.")
+        df = editor(st.session_state.spc_input_df, key="spc_editor")
+        df = df.dropna(subset=["Mean", "Range", "StdDev"]).reset_index(drop=True)
 
     if len(df) < 5:
         st.warning("Enter at least 5 subgroups to compute control limits.")
@@ -214,9 +317,9 @@ def render() -> None:
 
     tab1, tab2, tab3, tab4 = st.tabs(["Variable charts", "Process capability", "Attribute charts", "Hypothesis testing"])
     with tab1:
-        _variable_tab(df, n, usl, lsl, rules)
+        _variable_tab(df, n, usl, lsl, rules, unit)
     with tab2:
-        _capability_tab(df, n, usl, lsl)
+        _capability_tab(df, n, usl, lsl, up.raw if up else None, unit)
     with tab3:
         _attribute_tab(rules)
     with tab4:

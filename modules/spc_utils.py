@@ -5,6 +5,9 @@ Statistical Quality Control, Appendix VI) for subgroup sizes n = 2..10.
 """
 from __future__ import annotations
 
+import io
+import re
+
 import numpy as np
 import pandas as pd
 
@@ -181,3 +184,173 @@ def run_rule_violations(
         "run_segments": run_seg,
         "trend_segments": trend_seg,
     }
+
+
+# ---------------------------------------------------------------------------
+# Raw measurement upload: turn a CSV of raw readings into subgroup statistics
+# ---------------------------------------------------------------------------
+MIN_N, MAX_N = 2, 10          # subgroup sizes the constant tables cover
+MAX_VALUES = 50_000           # keep the page responsive on very large files
+_ID_NAME = re.compile(r"(subgroup|sample|group|batch|lot|\bid\b|\bno\b|run|time|date|index|#)", re.I)
+
+
+class UploadError(ValueError):
+    """A problem with the uploaded file that the user can fix (message is user-facing)."""
+
+
+def read_csv_bytes(data: bytes) -> pd.DataFrame:
+    """Parse CSV bytes into a DataFrame, with friendly errors."""
+    if not data or not data.strip():
+        raise UploadError("The file is empty.")
+    try:
+        df = pd.read_csv(io.BytesIO(data), encoding_errors="replace", sep=None, engine="python")
+    except Exception as exc:  # malformed CSV
+        raise UploadError(f"Could not read the file as CSV ({type(exc).__name__}). Check that it is a comma-separated text file.") from exc
+    df = df.dropna(how="all").dropna(axis=1, how="all")
+    if df.empty:
+        raise UploadError("The file has no data rows.")
+    if df.size > 2 * MAX_VALUES:
+        raise UploadError(f"The file is too large for this demo (limit about {MAX_VALUES:,} measurements).")
+    return df
+
+
+def _numeric(df: pd.DataFrame) -> pd.DataFrame:
+    return df.apply(pd.to_numeric, errors="coerce")
+
+
+def numeric_columns(df: pd.DataFrame) -> list[str]:
+    """Columns that hold mostly numbers."""
+    num = _numeric(df)
+    return [c for c in df.columns if num[c].notna().sum() >= max(1, 0.8 * df[c].notna().sum()) and df[c].notna().any()]
+
+
+def guess_id_column(df: pd.DataFrame) -> str | None:
+    """First column if it looks like a subgroup label (non-numeric, or named like one)."""
+    first = df.columns[0]
+    if first not in numeric_columns(df) or _ID_NAME.search(str(first)):
+        return first
+    return None
+
+
+def guess_long_columns(df: pd.DataFrame) -> tuple[str, str | None]:
+    """Best guess of (group column, value column) for one-measurement-per-row files."""
+    nums = numeric_columns(df)
+    group = next((c for c in df.columns if _ID_NAME.search(str(c))), df.columns[0])
+    value = next((c for c in reversed(nums) if c != group), None)
+    return group, value
+
+
+def guess_layout(df: pd.DataFrame) -> str:
+    """'wide', 'long' or 'seq', judged from the file's shape."""
+    id_col = guess_id_column(df)
+    measures = [c for c in numeric_columns(df) if c != id_col]
+    if len(measures) >= MIN_N:   # more than MAX_N columns still reads as "wide", so the user gets the size-limit message
+        return "wide"
+    if len(measures) == 1 and id_col is not None:
+        return "long"
+    return "seq"
+
+
+def _check_n(n: int) -> None:
+    if n < MIN_N:
+        raise UploadError(f"Found subgroups of {n} measurement(s). Control-chart constants need at least {MIN_N} per subgroup; "
+                          "for single readings, choose the 'single column' layout and set a subgroup size.")
+    if n > MAX_N:
+        raise UploadError(f"Found subgroups of {n} measurements; this tool supports subgroup sizes {MIN_N} to {MAX_N}. "
+                          "Check the subgroup ID column, or choose another layout.")
+
+
+def matrix_from_wide(df: pd.DataFrame, id_col: str | None) -> tuple[list, np.ndarray, list[str]]:
+    """One row per subgroup, one column per measurement. Returns (labels, k x n matrix, notes)."""
+    cols = [c for c in df.columns if c != id_col]
+    if not cols:
+        raise UploadError("No measurement columns found.")
+    num = _numeric(df[cols])
+    bad = [c for c in cols if num[c].notna().sum() == 0]
+    if bad:
+        raise UploadError(f"Column(s) {', '.join(map(str, bad))} contain no numbers. If one is a label column, pick it as the subgroup ID.")
+    _check_n(len(cols))
+    labels = df[id_col] if id_col is not None else pd.Series(np.arange(1, len(df) + 1), index=df.index)
+    keep = num.notna().all(axis=1)
+    notes = []
+    if (~keep).any():
+        notes.append(f"{int((~keep).sum())} row(s) with missing or non-numeric readings were skipped.")
+    if keep.sum() == 0:
+        raise UploadError("Every row has a missing or non-numeric reading.")
+    return labels[keep].tolist(), num[keep].to_numpy(dtype=float), notes
+
+
+def matrix_from_long(df: pd.DataFrame, group_col: str, value_col: str) -> tuple[list, np.ndarray, list[str]]:
+    """One row per measurement with a subgroup column. Subgroups must all be the same size."""
+    if group_col == value_col:
+        raise UploadError("Choose different columns for the subgroup and the measurement.")
+    values = pd.to_numeric(df[value_col], errors="coerce")
+    d = pd.DataFrame({"g": df[group_col], "v": values})
+    notes = []
+    missing = int(d["v"].isna().sum())
+    if missing:
+        notes.append(f"{missing} missing or non-numeric reading(s) were skipped.")
+    d = d.dropna(subset=["v", "g"])
+    if d.empty:
+        raise UploadError(f"Column '{value_col}' contains no numbers.")
+    groups = {}
+    for g, v in zip(d["g"], d["v"]):  # dict keeps first-appearance order
+        groups.setdefault(g, []).append(v)
+    sizes = {g: len(v) for g, v in groups.items()}
+    common = pd.Series(list(sizes.values())).mode().iloc[0]
+    odd = {g: s for g, s in sizes.items() if s != common}
+    if odd:
+        examples = ", ".join(f"{g} ({s})" for g, s in list(odd.items())[:4])
+        raise UploadError(f"Subgroups must all be the same size (most have {common}). Different sizes: {examples}"
+                          f"{' ...' if len(odd) > 4 else ''}.")
+    _check_n(int(common))
+    return list(groups), np.array(list(groups.values()), dtype=float), notes
+
+
+def matrix_from_sequence(df: pd.DataFrame, value_col: str, n: int) -> tuple[list, np.ndarray, list[str]]:
+    """A single column of readings in time order, grouped into consecutive subgroups of ``n``."""
+    _check_n(int(n))
+    values = pd.to_numeric(df[value_col], errors="coerce")
+    notes = []
+    if values.isna().any():
+        notes.append(f"{int(values.isna().sum())} missing or non-numeric reading(s) were skipped.")
+    v = values.dropna().to_numpy(dtype=float)
+    if len(v) == 0:
+        raise UploadError(f"Column '{value_col}' contains no numbers.")
+    k = len(v) // n
+    if k == 0:
+        raise UploadError(f"Only {len(v)} readings, which is fewer than one subgroup of {n}.")
+    if len(v) % n:
+        notes.append(f"The last {len(v) % n} reading(s) did not fill a subgroup of {n} and were left out.")
+    return list(range(1, k + 1)), v[: k * n].reshape(k, n), notes
+
+
+def summarize_matrix(labels: list, matrix: np.ndarray) -> pd.DataFrame:
+    """Subgroup mean, range and sample standard deviation (the table the charts use)."""
+    return pd.DataFrame(
+        {
+            "Subgroup": labels,
+            "Mean": matrix.mean(axis=1),
+            "Range": matrix.max(axis=1) - matrix.min(axis=1),
+            "StdDev": matrix.std(axis=1, ddof=1),
+        }
+    )
+
+
+def overall_capability(values, usl: float, lsl: float) -> dict:
+    """Pp, Ppk (and the overall mean and sigma) from all raw readings, using the overall sample std dev."""
+    v = np.asarray(values, dtype=float)
+    sigma = float(v.std(ddof=1)) if len(v) > 1 else 0.0
+    mean = float(v.mean())
+    cap = capability(usl, lsl, mean, sigma)
+    return {"pp": cap["cp"], "ppk": cap["cpk"], "mean": mean, "sigma": sigma}
+
+
+def example_csv(k: int = 20, n: int = 5, seed: int = 42) -> str:
+    """Simulated example file (one row per subgroup) with a small upward shift from subgroup 13 on."""
+    rng = np.random.default_rng(seed)
+    base = rng.normal(10.0, 0.012, size=(k, n))
+    base[12:] += 0.014
+    out = pd.DataFrame(np.round(base, 4), columns=[f"X{i}" for i in range(1, n + 1)])
+    out.insert(0, "Subgroup", np.arange(1, k + 1))
+    return out.to_csv(index=False)
