@@ -17,6 +17,7 @@ def test_two_named_sections_with_expected_tools():
     assert ops == ["SPC Control Charts", "OEE Dashboard", "Pareto Defects", "Maintenance & MTBF", "Line Balancing & Takt"]
     assert "Six Sigma: DMAIC Board" in ci and "Six Sigma: DMAIC Board" not in ops
     assert any("FMEA" in t for t in ci) and "5S Audit" in ci
+    assert "5 Why Analysis" in ci and "Fishbone (Ishikawa)" in ci
 
 
 def test_url_paths_unique_and_functions_callable():

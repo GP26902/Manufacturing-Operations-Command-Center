@@ -32,6 +32,17 @@ def table(df: pd.DataFrame, **kwargs) -> None:
         st.dataframe(df, use_container_width=True, hide_index=True, **kwargs)
 
 
+def report_issues(issues: list[str], limit: int = 10) -> None:
+    """Expander listing data-cleaning notes (excluded rows, ignored values). Shows nothing when empty."""
+    if not issues:
+        return
+    with st.expander(f"⚠️ {len(issues)} data note(s): some entries were excluded or ignored", expanded=True):
+        for msg in issues[:limit]:
+            st.markdown(f"- {msg}")
+        if len(issues) > limit:
+            st.markdown(f"- …and {len(issues) - limit} more.")
+
+
 def sample_data_note(text: str = "Sample data shown for illustration. Edit the table to use your own numbers.") -> None:
     st.caption(f"ℹ️ {text}")
 
