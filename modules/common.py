@@ -24,6 +24,14 @@ def editor(df: pd.DataFrame, key: str, **kwargs) -> pd.DataFrame:
         return st.data_editor(df, key=key, use_container_width=True, num_rows="dynamic", **kwargs)
 
 
+def table(df: pd.DataFrame, **kwargs) -> None:
+    """Read-only table, full width, no index (works on old and new Streamlit)."""
+    try:
+        st.dataframe(df, width="stretch", hide_index=True, **kwargs)
+    except TypeError:
+        st.dataframe(df, use_container_width=True, hide_index=True, **kwargs)
+
+
 def sample_data_note(text: str = "Sample data shown for illustration. Edit the table to use your own numbers.") -> None:
     st.caption(f"ℹ️ {text}")
 
