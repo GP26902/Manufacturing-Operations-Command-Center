@@ -43,6 +43,19 @@ def report_issues(issues: list[str], limit: int = 10) -> None:
             st.markdown(f"- …and {len(issues) - limit} more.")
 
 
+def white_card(fig: go.Figure, ink: str = "#1a1a1a") -> go.Figure:
+    """White background with explicit dark text, so a chart reads the same in light and dark Streamlit themes.
+
+    Streamlit's dark theme sets tick, title and legend font colours itself, which override ``axis.color``;
+    they have to be set explicitly.
+    """
+    fig.update_layout(paper_bgcolor="white", plot_bgcolor="white", font={"color": ink}, title_font_color=ink,
+                      legend_font_color=ink)
+    fig.update_xaxes(color=ink, tickfont={"color": ink}, title_font={"color": ink}, gridcolor="#e6e6e6")
+    fig.update_yaxes(color=ink, tickfont={"color": ink}, title_font={"color": ink}, gridcolor="#e6e6e6")
+    return fig
+
+
 def sample_data_note(text: str = "Sample data shown for illustration. Edit the table to use your own numbers.") -> None:
     st.caption(f"ℹ️ {text}")
 

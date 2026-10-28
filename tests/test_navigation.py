@@ -14,11 +14,12 @@ def test_two_named_sections_with_expected_tools():
     assert list(app.NAV_SECTIONS) == ["Operations Analytics", "CI Toolkit"]
     ops = [t for t, *_ in app.NAV_SECTIONS["Operations Analytics"]]
     ci = [t for t, *_ in app.NAV_SECTIONS["CI Toolkit"]]
-    assert ops == ["SPC Control Charts", "OEE Dashboard", "Pareto Defects", "Maintenance & MTBF", "Line Balancing & Takt"]
+    assert ops == ["SPC Control Charts", "OEE Dashboard", "Pareto Defects", "Maintenance & MTBF", "Line Balancing & Takt",
+                   "Gage R&R"]
     assert "Six Sigma: DMAIC Board" in ci and "Six Sigma: DMAIC Board" not in ops
     assert any("FMEA" in t for t in ci) and "5S Audit" in ci
     assert "5 Why Analysis" in ci and "Fishbone (Ishikawa)" in ci
-    assert "8D Tracker" in ci and "Kaizen Log" in ci
+    assert "8D Tracker" in ci and "Kaizen Log" in ci and "Which Tool When?" in ci
 
 
 def test_url_paths_unique_and_functions_callable():
@@ -48,3 +49,15 @@ def test_fallback_navigation_for_old_streamlit():
     at.sidebar.radio[1].set_value(five_s).run()
     assert not at.exception
     assert [h.value for h in at.header] == ["🧹 5S Audit"]
+
+
+def test_guide_tools_match_navigation_exactly():
+    """Every page (except the guide itself) is described in the guide, and every guide link points at a real page."""
+    from modules import guide
+
+    nav_paths = {e[2] for section in app.NAV_SECTIONS.values() for e in section}
+    assert set(guide.all_paths()) == nav_paths - {"guide"}
+    nav_titles = {e[2]: e[0] for section in app.NAV_SECTIONS.values() for e in section}
+    for key, (title, section, path, *_rest) in guide.TOOLS.items():
+        assert nav_titles[path] == title, key
+        assert any(path == e[2] for e in app.NAV_SECTIONS[section]), key
