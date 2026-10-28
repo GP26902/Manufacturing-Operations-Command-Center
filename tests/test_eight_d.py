@@ -132,7 +132,7 @@ def test_timeline_figure():
     fig = e.build_timeline_fig(df, AS_OF)
     names = [t.name for t in fig.data if t.name]
     assert names == ["Planned", "Planned (overdue)", "Completed"]
-    texts = [t for tr in fig.data if tr.mode == "text" for t in tr.text]
+    texts = [t.replace(e.PAD, "") for tr in fig.data if tr.mode == "text" for t in tr.text]
     assert "<b>1 d late</b>" in texts and "<b>1 d early</b>" in texts and "<b>overdue 8 d</b>" in texts and "<b>on time</b>" in texts
     assert e.build_timeline_fig(clean([]), AS_OF) is None
     only_planned = e.build_timeline_fig(clean([["D0", "Not started", D(2027, 1, 1), None, ""]]), AS_OF)
@@ -146,6 +146,8 @@ def test_custom_diagrams_have_explicit_text_colours_and_white_card():
     df, _ = e.clean_steps(e.sample_steps())
     for fig in (e.build_stepper_fig(df, AS_OF), e.build_timeline_fig(df, AS_OF)):
         assert fig.layout.paper_bgcolor == "white" and fig.layout.plot_bgcolor == "white"
+        for axis in (fig.layout.xaxis, fig.layout.yaxis):
+            assert axis.tickfont.color == e.INK and axis.title.font.color == e.INK  # theme sets these per axis
         for ann in fig.layout.annotations:
             if ann.text:
                 assert ann.font.color, ann.text
@@ -208,3 +210,14 @@ def test_show_results_empty_table():
     at = run_script("e.show_results(e.clean_steps(None)[0], '', dt.date(2026, 9, 1), dt.date(2026, 9, 1))")
     assert not at.exception
     assert any("planned or completed dates" in i.value for i in at.info)
+
+
+def test_timeline_labels_sit_clear_of_markers():
+    """Labels are placed at the later of the planned and completed dates, with padding, so they do not cover a marker."""
+    df, _ = e.clean_steps(e.sample_steps())
+    fig = e.build_timeline_fig(df, AS_OF)
+    label_tr = [tr for tr in fig.data if tr.mode == "text"][0]
+    by_y = dict(zip(label_tr.y, label_tr.x))
+    assert by_y["D5 Corrective action"] == "2026-09-30"  # planned later than completed (early finish)
+    assert by_y["D4 Root cause"] == "2026-09-22" and by_y["D3 Contain"] == "2026-09-05"
+    assert all(t.startswith("<b>" + e.PAD) for t in label_tr.text)

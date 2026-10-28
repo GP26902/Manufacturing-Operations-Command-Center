@@ -274,6 +274,9 @@ def _money(x: float) -> str:
 # ---------------------------------------------------------------------------
 def _card(fig: go.Figure) -> go.Figure:
     fig.update_layout(paper_bgcolor="white", plot_bgcolor="white", font={"color": INK})
+    # Streamlit's dark theme sets tick and title font colours on each axis, which override axis.color.
+    fig.update_xaxes(color=INK, tickfont={"color": INK}, title_font={"color": INK})
+    fig.update_yaxes(color=INK, tickfont={"color": INK}, title_font={"color": INK})
     return fig
 
 

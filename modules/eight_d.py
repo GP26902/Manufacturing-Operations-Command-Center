@@ -26,6 +26,7 @@ STATUSES = ["Not started", "In progress", "Done", "Blocked"]
 STEP_COLS = ["Step", "Status", "Planned date", "Completed date", "Notes"]
 CLEAN_COLS = ["Step", "Name", "Status", "Planned", "Completed", "Notes"]
 INK, MUTED = "#1a1a1a", "#4a4a4a"
+PAD = "\u00a0\u00a0\u00a0"  # keeps timeline labels clear of the markers
 OK_TEXT, WARN_TEXT, BAD_TEXT = "#1b5e20", "#b34700", "#b71c1c"
 STATUS_STYLE = {  # fill, text colour on the marker, border
     "Done": (GREEN, "#ffffff", GREEN),
@@ -213,6 +214,9 @@ def sequence_notes(df: pd.DataFrame, opened, as_of) -> list[str]:
 # ---------------------------------------------------------------------------
 def _card(fig: go.Figure) -> go.Figure:
     fig.update_layout(paper_bgcolor="white", plot_bgcolor="white", font={"color": INK})
+    # Streamlit's dark theme sets tick and title font colours on each axis, which override axis.color.
+    fig.update_xaxes(color=INK, tickfont={"color": INK}, title_font={"color": INK})
+    fig.update_yaxes(color=INK, tickfont={"color": INK}, title_font={"color": INK})
     return fig
 
 
@@ -295,14 +299,15 @@ def build_timeline_fig(df: pd.DataFrame, as_of) -> go.Figure | None:
         if r["Status"] == "Done" and pd.notna(r["Days late"]):
             d = int(r["Days late"])
             text, color = ("on time", OK_TEXT) if d == 0 else ((f"{d} d late", BAD_TEXT) if d > 0 else (f"{-d} d early", OK_TEXT))
-            notes_x.append(_iso(r["Completed"]))
+            later = max(r["Completed"], r["Planned"]) if pd.notna(r["Planned"]) else r["Completed"]
+            notes_x.append(_iso(later))
         elif r["Overdue"]:
             text, color = f"overdue {int(r['Days late'])} d", BAD_TEXT
             notes_x.append(_iso(as_of_ts))
         else:
             continue
         notes_y.append(labels[r["Step"]])
-        notes_t.append(f"<b>{text}</b>")
+        notes_t.append(f"<b>{PAD}{text}</b>")
         notes_c.append(color)
     if notes_x:
         fig.add_trace(go.Scatter(x=notes_x, y=notes_y, mode="text", text=notes_t, textposition="middle right",

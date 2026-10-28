@@ -174,6 +174,8 @@ def test_custom_diagrams_have_explicit_text_colours_and_white_card():
     df, _ = k.clean_ideas(k.sample_ideas())
     for fig in (k.build_matrix_fig(df, 4, 2), k.build_pdca_fig(df)):
         assert fig.layout.paper_bgcolor == "white" and fig.layout.plot_bgcolor == "white"
+        for axis in (fig.layout.xaxis, fig.layout.yaxis):
+            assert axis.tickfont.color == k.INK and axis.title.font.color == k.INK  # theme sets these per axis
         for ann in fig.layout.annotations:
             if ann.text:
                 assert ann.font.color, ann.text
