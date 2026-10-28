@@ -258,3 +258,9 @@ def test_editor_edits_do_not_crash_page(state, expect_info):
     at.run()
     assert not at.exception
     assert any("Enter at least one complete row" in i.value for i in at.info) == expect_info
+
+
+def test_heatmap_annotation_has_explicit_colour():
+    clean, _ = fmea.clean_fmea(fmea.sample_table("PFMEA"), "PFMEA")
+    fig = fmea.build_heatmap_fig(clean)
+    assert fig.layout.annotations[0].font.color == "#7a1a10"

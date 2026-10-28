@@ -85,23 +85,46 @@ def test_wrap_label_escapes_and_truncates():
     assert w.wrap_label("") == ""
 
 
+def box_shapes(fig):
+    return [sh for sh in fig.layout.shapes if sh.x1 == w.BOX_X1]
+
+
 def test_chain_figure_structure():
     chain, _ = w.clean_chain(w.sample_chain())
     fig = w.build_chain_fig(w.SAMPLE_PROBLEM, chain)
-    assert len(fig.layout.shapes) == 6  # problem + 5 whys
-    dashed = [s for s in fig.layout.shapes if s.line.dash == "dash"]
-    assert len(dashed) == 0  # the only unverified row is the root cause, which is drawn as the root box
-    assert fig.layout.shapes[-1].line.color == w.GREEN
-    only_problem = w.build_chain_fig("", w._empty())
-    assert len(only_problem.layout.shapes) == 1
+    boxes = box_shapes(fig)
+    assert len(boxes) == 6 and len(fig.layout.shapes) == 12  # problem + 5 whys, each with an accent bar
+    assert boxes[-1].line.color == w.GREEN and boxes[0].line.color == w.RED
+    assert len(box_shapes(w.build_chain_fig("", w._empty()))) == 1
     long_chain, _ = w.clean_chain(chain_df([["x" * 600, "e" * 600, False]] * 10))
     assert w.build_chain_fig("p" * 500, long_chain).layout.height > 0
 
 
-def test_unverified_middle_row_is_dashed():
+def test_unverified_middle_row_is_dashed_and_tagged():
     chain, _ = w.clean_chain(chain_df([["a", "", False], ["b", "", True], ["c", "", True]]))
     fig = w.build_chain_fig("p", chain)
-    assert [s.line.dash for s in fig.layout.shapes] == ["solid", "dash", "solid", "solid"]
+    assert [sh.line.dash for sh in box_shapes(fig)] == ["solid", "dash", "solid", "solid"]
+    texts = [a.text for a in fig.layout.annotations]
+    assert any("? not verified" in t for t in texts) and sum("✔ verified" in t for t in texts) == 2
+
+
+def test_action_box_added_only_with_action_and_chain():
+    chain, _ = w.clean_chain(w.sample_chain())
+    assert len(box_shapes(w.build_chain_fig("p", chain, "Do X"))) == 7
+    assert len(box_shapes(w.build_chain_fig("p", chain, "  "))) == 6
+    assert len(box_shapes(w.build_chain_fig("p", w._empty(), "Do X"))) == 1
+
+
+def test_every_text_has_explicit_colour_for_light_and_dark_themes():
+    """Regression: text without a colour inherited the (light) dark-theme colour and was unreadable on pale boxes."""
+    chain, _ = w.clean_chain(w.sample_chain())
+    fig = w.build_chain_fig(w.SAMPLE_PROBLEM, chain, "Do X")
+    for ann in fig.layout.annotations:
+        if ann.text:
+            assert ann.font.color, ann.text
+    body_colours = {a.font.color for a in fig.layout.annotations if a.text and a.font.size == 14}
+    assert body_colours == {w.INK}
+    assert w.INK == "#1a1a1a"
 
 
 # ---------------------------------------------------------------- page loads (AppTest)

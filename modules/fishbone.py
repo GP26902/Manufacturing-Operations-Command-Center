@@ -235,10 +235,11 @@ def build_fishbone_fig(effect: str, struct: dict[str, list[dict]]) -> go.Figure:
         hoverinfo="text", showlegend=False))
     effect_text = "<br>".join(html.escape(line, quote=False) for line in _wrap(effect or "(problem not stated)", 16, 90))
     fig.add_annotation(x=92, y=0, text=f"<b>{effect_text}</b>", showarrow=False, align="center", bordercolor="#333333",
-                       borderwidth=2, borderpad=8, bgcolor="#fde0dd", font={"size": 13})
+                       borderwidth=2, borderpad=8, bgcolor="#fde0dd", font={"size": 13, "color": "#1a1a1a"})
     fig.update_xaxes(visible=False, range=[-6, 103])
     fig.update_yaxes(visible=False, range=[-(H + 1.8), H + 1.8])
-    fig.update_layout(height=int(2 * (H + 1.8) * 30 + 40), margin={"l": 5, "r": 5, "t": 10, "b": 10}, plot_bgcolor="white")
+    fig.update_layout(height=int(2 * (H + 1.8) * 30 + 40), margin={"l": 5, "r": 5, "t": 10, "b": 10},
+                      plot_bgcolor="white", paper_bgcolor="white")
     return fig
 
 

@@ -168,3 +168,12 @@ def test_editor_edits_do_not_crash(state):
 def test_show_results_empty():
     at = run_script("f.show_results('', f._empty())")
     assert not at.exception and any("Add causes" in i.value for i in at.info)
+
+
+def test_text_colours_explicit_and_white_card_for_dark_theme():
+    """Regression: effect box and heat-map style text must not depend on the theme's (light) text colour."""
+    clean, _ = f.clean_causes(f.sample_causes())
+    fig = f.build_fishbone_fig("effect", f.build_structure(clean))
+    assert fig.layout.annotations[0].font.color == "#1a1a1a"
+    assert fig.layout.paper_bgcolor == "white" and fig.layout.plot_bgcolor == "white"
+    assert all(c for c in fig.data[-1].textfont.color)

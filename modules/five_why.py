@@ -144,39 +144,69 @@ def wrap_label(text: str, width: int = WRAP, max_chars: int = MAX_CHARS) -> str:
 # ---------------------------------------------------------------------------
 # Figure
 # ---------------------------------------------------------------------------
-def build_chain_fig(problem: str, chain: pd.DataFrame) -> go.Figure:
-    """Vertical chain: problem, Why 1 ... Why n. The last box is the root cause."""
-    items = [("Problem", _text(problem) or "(problem not stated)", "problem")]
+# Text colours are set explicitly so the diagram is readable in both light and dark Streamlit themes.
+INK, MUTED, ARROW = "#1a1a1a", "#4a4a4a", "#8a8f98"
+OK_TEXT, WARN_TEXT = "#1b5e20", "#b34700"
+BOX_STYLE = {  # kind: (fill, border, dash)
+    "problem": ("#fde0dd", RED, "solid"),
+    "why": ("#e3eef9", BLUE, "solid"),
+    "unverified": ("#fff3e0", ORANGE, "dash"),
+    "root": ("#e2f4e2", GREEN, "solid"),
+    "action": ("#f1f8f1", GREEN, "dash"),
+}
+BOX_X1, ACCENT_X1 = 10.0, 0.25
+
+
+def _lines(text: str) -> list[str]:
+    return wrap_label(text).split("<br>")
+
+
+def build_chain_fig(problem: str, chain: pd.DataFrame, action: str = "") -> go.Figure:
+    """Vertical chain: Problem, Why 1 ... Why n (last = root cause), then the action if one is given.
+
+    Each box has a coloured accent bar, a title, the cause, the evidence (smaller) and a verified tag.
+    Dashed orange border = not verified.
+    """
+    boxes = [{"kind": "problem", "title": "PROBLEM", "body": _text(problem) or "(problem not stated)", "evidence": "", "tag": ""}]
+    n = len(chain)
     for _, r in chain.iterrows():
-        last = r["Level"] == len(chain)
-        title = f"Root cause (Why {r['Level']})" if last else f"Why {r['Level']}"
-        items.append((title, r["Cause"] + (f"\nEvidence: {r['Evidence']}" if r["Evidence"] else ""), "root" if last else (
-            "why" if r["Verified"] else "unverified")))
-    style = {
-        "problem": ("#fde0dd", RED, "solid"),
-        "why": ("#e3eef9", BLUE, "solid"),
-        "unverified": ("#fff3e0", ORANGE, "dash"),
-        "root": ("#e2f4e2", GREEN, "solid"),
-    }
+        last = int(r["Level"]) == n
+        verified = bool(r["Verified"])
+        kind = "root" if last else ("why" if verified else "unverified")
+        boxes.append({"kind": kind, "title": f"ROOT CAUSE (Why {r['Level']})" if last else f"WHY {r['Level']}",
+                      "body": r["Cause"], "evidence": r["Evidence"], "tag": "✔ verified" if verified else "? not verified",
+                      "tag_color": OK_TEXT if verified else WARN_TEXT})
+    if n and _text(action):
+        boxes.append({"kind": "action", "title": "ACTION ON THE ROOT CAUSE", "body": _text(action), "evidence": "", "tag": ""})
+
     fig = go.Figure()
-    y, gap, line_h = 0.0, 0.9, 0.42
+    y, gap = 0.0, 0.95
     prev_bottom = None
-    for title, body, kind in items:
-        lines = [wrap_label(part) for part in body.split("\n")]
-        n_lines = sum(max(1, ln.count("<br>") + 1) for ln in lines)
-        h = (n_lines + 1) * line_h + 0.35
+    for i, bx in enumerate(boxes):
+        body, ev = _lines(bx["body"]), (_lines("Evidence: " + bx["evidence"]) if bx["evidence"] else [])
+        h = 0.3 + 0.45 + len(body) * 0.42 + len(ev) * 0.36 + 0.3
         top, bottom = y, y - h
-        fill, border, dash = style[kind]
-        fig.add_shape(type="rect", x0=0, x1=10, y0=bottom, y1=top, fillcolor=fill,
-                      line={"color": border, "width": 2.5 if kind == "root" else 1.5, "dash": dash})
-        text = f"<b>{html.escape(title, quote=False)}</b><br>" + "<br>".join(
-            f"<i>{ln}</i>" if i else ln for i, ln in enumerate(lines))
-        fig.add_annotation(x=5, y=(top + bottom) / 2, text=text, showarrow=False, align="center", font={"size": 13})
+        fill, border, dash = BOX_STYLE[bx["kind"]]
+        fig.add_shape(type="rect", x0=0, x1=BOX_X1, y0=bottom, y1=top, fillcolor=fill,
+                      line={"color": border, "width": 2.5 if bx["kind"] == "root" else 1.5, "dash": dash})
+        fig.add_shape(type="rect", x0=0, x1=ACCENT_X1, y0=bottom, y1=top, fillcolor=border, line={"width": 0})
+        title_color = WARN_TEXT if border == ORANGE else border
+        fig.add_annotation(x=0.5, y=top - 0.2, xanchor="left", yanchor="top", showarrow=False, align="left",
+                           text=f"<b>{html.escape(bx['title'], quote=False)}</b>", font={"size": 12, "color": title_color})
+        if bx["tag"]:
+            fig.add_annotation(x=BOX_X1 - 0.3, y=top - 0.2, xanchor="right", yanchor="top", showarrow=False,
+                               text=f"<b>{bx['tag']}</b>", font={"size": 12, "color": bx["tag_color"]})
+        fig.add_annotation(x=0.5, y=top - 0.65, xanchor="left", yanchor="top", showarrow=False, align="left",
+                           text="<br>".join(body), font={"size": 14, "color": INK})
+        if ev:
+            fig.add_annotation(x=0.5, y=top - 0.65 - len(body) * 0.42 - 0.05, xanchor="left", yanchor="top", showarrow=False,
+                               align="left", text="<br>".join(ev), font={"size": 11, "color": MUTED})
         if prev_bottom is not None:
-            fig.add_annotation(x=5, y=top, ax=5, ay=prev_bottom, xref="x", yref="y", axref="x", ayref="y",
-                               showarrow=True, arrowhead=2, arrowwidth=2, arrowcolor="#555555", text="")
-            fig.add_annotation(x=5.15, y=(top + prev_bottom) / 2, text="<b>why?</b>" if kind != "problem" else "",
-                               showarrow=False, xanchor="left", font={"size": 11, "color": "#555555"})
+            fig.add_annotation(x=5, y=top, ax=5, ay=prev_bottom, xref="x", yref="y", axref="x", ayref="y", showarrow=True,
+                               arrowhead=2, arrowwidth=2, arrowcolor=ARROW, text="")
+            label = "fix" if bx["kind"] == "action" else "why?"
+            fig.add_annotation(x=5.15, y=(top + prev_bottom) / 2, text=f"<b>{label}</b>", showarrow=False, xanchor="left",
+                               font={"size": 12, "color": ARROW})
         prev_bottom = bottom
         y = bottom - gap
     total = -y
@@ -204,9 +234,9 @@ def show_results(problem: str, chain: pd.DataFrame, action: str = "") -> None:
     c3.metric("Root-cause row", f"Why {int(chain['Level'].iloc[-1])}")
     for msg in chain_checks(chain):
         st.warning(msg)
-    plot(build_chain_fig(problem, chain))
+    plot(build_chain_fig(problem, chain, action))
     root = chain["Cause"].iloc[-1]
-    st.success(f"**Root cause:** {root}" + (f"  \n**Action:** {_text(action)}" if _text(action) else ""))
+    st.success(f"**Root cause:** {root}")
     with st.expander("Logic check: read the chain backwards"):
         for line in therefore_reading(problem, chain):
             st.markdown(f"- {line}")

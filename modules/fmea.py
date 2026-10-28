@@ -350,7 +350,8 @@ def build_heatmap_fig(df: pd.DataFrame) -> go.Figure:
         )
     )
     fig.add_hrect(y0=SEVERITY_FLAG - 0.5, y1=RATING_MAX + 0.5, line=dict(color=RED, width=2, dash="dot"),
-                  fillcolor="rgba(0,0,0,0)", annotation_text=f"Severity >= {SEVERITY_FLAG}", annotation_position="top left")
+                  fillcolor="rgba(0,0,0,0)", annotation_text=f"Severity >= {SEVERITY_FLAG}", annotation_position="top left",
+                  annotation_font_color="#7a1a10")
     fig.update_layout(
         title="Severity x Occurrence heat map (cell shading = S x O; labels = failure-mode IDs)",
         xaxis=dict(title="Occurrence", dtick=1), yaxis=dict(title="Severity", dtick=1), height=520,
