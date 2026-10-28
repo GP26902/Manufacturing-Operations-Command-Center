@@ -1,7 +1,20 @@
 """Manufacturing Operations Command Center: entry point and navigation."""
 import streamlit as st
 
-from modules import dmaic, fishbone, five_s, five_why, fmea, line_balancing, maintenance, oee, pareto, spc
+from modules import (
+    dmaic,
+    eight_d,
+    fishbone,
+    five_s,
+    five_why,
+    fmea,
+    kaizen,
+    line_balancing,
+    maintenance,
+    oee,
+    pareto,
+    spc,
+)
 
 # Sidebar sections. Each entry: (page title, icon, URL path, render function).
 # URL paths are unique and stable, so a tool can be linked directly: <app-url>/fmea
@@ -19,6 +32,8 @@ NAV_SECTIONS = {
         ("5S Audit", "🧹", "five-s", five_s.render),
         ("5 Why Analysis", "❓", "five-why", five_why.render),
         ("Fishbone (Ishikawa)", "🐟", "fishbone", fishbone.render),
+        ("8D Tracker", "📋", "eight-d", eight_d.render),
+        ("Kaizen Log", "🔁", "kaizen", kaizen.render),
     ],
 }
 
